@@ -58,7 +58,15 @@ TIM_HandleTypeDef htim2;
 __IO ITStatus UartReady = RESET;
 __IO uint16_t adcValues[DMABUFFER];
 __IO uint16_t staticAdcValues[DMABUFFER];
+__IO uint16_t filterValues[DMABUFFER];
+__IO uint16_t filterStaticValues[DMABUFFER];
+__IO uint16_t maxValueTime = 0;
 uint16_t aTxBuffer[1];
+uint16_t B[3];
+double A[3];
+double Gain = 0.02;
+double w_x[3];
+double w_y[3];
 
 __IO uint16_t maxValue = 0;
 /* USER CODE END PV */
@@ -75,7 +83,9 @@ static void MX_SPI1_Init(void);
 static void MX_ADC2_Init(void);
 /* USER CODE BEGIN PFP */
 static void FindMaxValue(void);
-static void Max7219Show(uint16_t number);
+static void Max7219Show(uint16_t number, bool pos);
+static void FilterAdcValues(void);
+static void FilterStaticValues(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -118,7 +128,14 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  B[0] = 1;
+  B[1] = 2;
+  B[2] = 1;
+  A[0] = 1;
+  A[1] = -1.561;
+  A[2] = 0.641;
+  w_x[0] = w_x[1] = w_x[2] = 0;
+  w_y[0] = w_y[1] = w_y[2] = 1;
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -155,7 +172,8 @@ int main(void)
   max7219_Init(7);
   max7219_Decode_On();
   max7219_Clean();
-  Max7219Show(0);
+  Max7219Show(1111, true);
+  Max7219Show(2222, false);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -582,22 +600,31 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *UartHandle)
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *AdcHandle)
 {
   uint16_t i = 0;
-  if (AdcHandle->Instance == hadc2.Instance)
+  if (AdcHandle->Instance == hadc1.Instance)
   {
     // printf("%s\n", "****Begin****");
+
+    i = 0;
+    FilterAdcValues();
+    FilterStaticValues();
+    FindMaxValue();
     for (i = 0; i < DMABUFFER; ++i)
     {
-      printf("%d\n", staticAdcValues[i]);
+      printf("%d\n", filterValues[i]);
     }
-    i = 0;
-    FindMaxValue();
-    Max7219Show(maxValue);
+    printf("%s\n", "ADC1 over");
     // printf("%s\n", "****End****");
   }
   if (AdcHandle->Instance == hadc2.Instance)
   {
-    printf("%s\n", "ADC2over");
-    printf("%d\n", staticAdcValues[2000]);
+    printf("%s\n", "ADC2 over");
+    float meanPressure = filterStaticValues[maxValueTime] / 18.2;
+    float leftPressure = meanPressure * 0.93;
+    float rightPressure = meanPressure * 0.53;
+    Max7219Show((uint16_t)leftPressure, true);
+    Max7219Show((uint16_t)rightPressure, false);
+    printf("leftP: %d rightP: %d\n", (uint16_t)leftPressure, (uint16_t)rightPressure);
+    printf("maxValueTime:%d maxAdcValue:%d maxPressure:%d\n", maxValueTime, maxValue, filterStaticValues[maxValueTime]);
   }
   // printf("%s\n", "Processing");
 #ifndef ONESHOT
@@ -618,27 +645,86 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
 static void FindMaxValue(void)
 {
-  maxValue = adcValues[0];
+  maxValue = filterValues[800];
+  maxValueTime = 800;
   uint16_t i;
-  for (i = 600; i < DMABUFFER; ++i)
+  for (i = 800; i < DMABUFFER - 200; ++i)
   {
-    if (adcValues[i] > maxValue)
+    if (filterValues[i] > maxValue)
     {
-      maxValue = adcValues[i];
+      maxValue = filterValues[i];
+      maxValueTime = i;
     }
   }
 }
-static void Max7219Show(uint16_t number)
+static void Max7219Show(uint16_t number, bool pos)
 {
-  uint16_t a = number / 1000;
-  uint16_t b = (number % 1000) / 100;
-  uint16_t c = (number % 100) / 10;
-  uint16_t d = number % 10;
-  max7219_Clean();
-  max7219_PrintDigit(DIGIT_4, a, false);
-  max7219_PrintDigit(DIGIT_3, b, false);
-  max7219_PrintDigit(DIGIT_2, c, false);
-  max7219_PrintDigit(DIGIT_1, d, false);
+  bool flag = false;
+  uint16_t numbers[4];
+  uint16_t i;
+  numbers[0] = number / 1000;
+  numbers[1] = (number % 1000) / 100;
+  numbers[2] = (number % 100) / 10;
+  numbers[3] = number % 10;
+  //max7219_Clean();
+  if (pos == true)
+  {
+    for (i = 0; i < 4; ++i)
+    {
+      if (numbers[i] != 0 || flag)
+      {
+        max7219_PrintDigit(4 - i, numbers[i], false);
+        flag = true;
+      }
+      else
+      {
+        max7219_PrintDigit(4 - i, BLANK, false);
+      }
+    }
+  }
+  else
+  {
+    for (i = 0; i < 4; ++i)
+    {
+      if (numbers[i] != 0 || flag)
+      {
+        max7219_PrintDigit(8 - i, numbers[i], false);
+        flag = true;
+      }
+      else
+      {
+        max7219_PrintDigit(8 - i, BLANK, false);
+      }
+    }
+  }
+}
+static void FilterAdcValues(void)
+{
+  uint16_t i;
+  for (i = 0; i < DMABUFFER; i++)
+  {
+    w_x[0] = adcValues[i];
+    w_y[0] = (B[0] * w_x[0] + B[1] * w_x[1] + B[2] * w_x[2]) * Gain - w_y[1] * A[1] - w_y[2] * A[2];
+    filterValues[i] = w_y[0] / A[0];
+    w_x[2] = w_x[1];
+    w_x[1] = w_x[0];
+    w_y[2] = w_y[1];
+    w_y[1] = w_y[0];
+  }
+}
+static void FilterStaticValues(void)
+{
+  uint16_t i;
+  for (i = 0; i < DMABUFFER; i++)
+  {
+    w_x[0] = staticAdcValues[i];
+    w_y[0] = (B[0] * w_x[0] + B[1] * w_x[1] + B[2] * w_x[2]) * Gain - w_y[1] * A[1] - w_y[2] * A[2];
+    filterStaticValues[i] = w_y[0] / A[0];
+    w_x[2] = w_x[1];
+    w_x[1] = w_x[0];
+    w_y[2] = w_y[1];
+    w_y[1] = w_y[0];
+  }
 }
 /* USER CODE END 4 */
 
