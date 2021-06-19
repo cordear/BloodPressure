@@ -43,7 +43,7 @@ extern "C"
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-#define DMABUFFER 2400
+#define DMABUFFER 2700
 #define ONESHOT
 #define PRESSURECOF 18.2
 #define LEFTCOF 0.75

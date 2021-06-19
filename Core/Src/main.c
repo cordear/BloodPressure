@@ -610,7 +610,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *AdcHandle)
     FindMaxValue();
     for (i = 0; i < DMABUFFER; ++i)
     {
-      printf("%d\n", filterValues[i]);
+      printf("%d\n", filterStaticValues[i]);
     }
     printf("%s\n", "ADC1 over");
     // printf("%s\n", "****End****");
@@ -619,8 +619,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *AdcHandle)
   {
     printf("%s\n", "ADC2 over");
     float meanPressure = filterStaticValues[maxValueTime] / 18.2;
-    float leftPressure = meanPressure * 0.93;
-    float rightPressure = meanPressure * 0.53;
+    float leftPressure = meanPressure / 0.8;
+    float rightPressure = meanPressure * 0.7;
     Max7219Show((uint16_t)leftPressure, true);
     Max7219Show((uint16_t)rightPressure, false);
     printf("leftP: %d rightP: %d\n", (uint16_t)leftPressure, (uint16_t)rightPressure);
@@ -648,7 +648,7 @@ static void FindMaxValue(void)
   maxValue = filterValues[800];
   maxValueTime = 800;
   uint16_t i;
-  for (i = 800; i < DMABUFFER - 200; ++i)
+  for (i = 800; i < DMABUFFER; ++i)
   {
     if (filterValues[i] > maxValue)
     {
